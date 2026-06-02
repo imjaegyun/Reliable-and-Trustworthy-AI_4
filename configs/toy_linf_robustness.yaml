@@ -1,0 +1,44 @@
+# Assignment4: α,β-CROWN toy custom model configuration
+#
+# This file follows the α,β-CROWN configuration layout described in:
+#   complete_verifier/docs/abcrown_usage.md
+# (model + data + specification are the 3 main sections)
+#
+# Note:
+# - Exact accepted keys vary slightly by α,β-CROWN version/build.
+# - This is a startable template to use together with custom/toy_model_data.py.
+
+# General verifier behavior (minimal set)
+general:
+  # root_path: .
+  mode: verify
+
+# Model section: custom PyTorch model + separate model definition.
+model:
+  # Use this form for custom pytorch model in docs example.
+  name: "Customized('toy_model_data', 'build_toy_model', in_channel=2, out_dim=2)"
+  path: "models/toy_binary_mlp.pt"
+  input_shape: [2]
+
+# Data section: one custom data-point based check.
+data:
+  # custom_data_fn is a lightweight loader in this repository.
+  # data is normalized [0,1] in our generator.
+  dataset: custom
+  path: "data/toy_dataset.csv"
+  batch_size: 1
+  start: 0
+  end: 1
+
+# Specification section: L_inf robustness around one reference point.
+specification:
+  type: robust
+  norm: .inf
+  epsilon: 0.05
+
+# Solver section (may include beta-crown and bab keys depending on your alpha-beta-CROWN version).
+solver:
+  timeout: 120
+  # When available, use ReLU branching for this small MLP.
+  branching:
+    method: input
