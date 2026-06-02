@@ -1,0 +1,7 @@
+__pycache__/
+*.pt
+*.pth
+*.onnx
+*.pth.tar
+results/*.json
+results/*.log
