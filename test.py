@@ -1,19 +1,11 @@
-"""Run a prepared α,β-CROWN configuration and store structured result JSON.
-
-Usage:
-  # print command only
-  python test.py --config configs/toy_linf_robustness.yaml
-
-  # run verifier
-  python test.py --config configs/toy_linf_robustness.yaml --run
-"""
+"""Run a prepared alpha-beta-CROWN configuration and store structured result JSON."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
-import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -38,10 +30,9 @@ def _find_abcrown_entry(abcrown_root: Path) -> Optional[Path]:
 
 def _detect_status(text: str) -> str:
     lowered = text.lower()
-    if "verified" in lowered or "unsafe" in lowered:
-        if "unsat" in lowered and "sat" not in lowered:
-            return "verified"
-    if "unsafe" in lowered or re.search(r"\b(falsified|sat)\b", lowered):
+    if re.search(r"\bverified\b|\bsafe\b|\bunsat\b", lowered):
+        return "verified"
+    if re.search(r"\bfalsified\b|\bunsafe\b|\bsat\b", lowered):
         return "falsified"
     if "timeout" in lowered or "timed out" in lowered:
         return "timeout"
@@ -50,21 +41,37 @@ def _detect_status(text: str) -> str:
     return "finished"
 
 
-def run_abcrown(config_path: Path, abcrown_root: Path, run_tool: bool, timeout: int = 120) -> Dict[str, Any]:
+def _subprocess_env() -> Dict[str, str]:
+    env = os.environ.copy()
+    extra_paths = [str(ROOT / "custom"), str(ROOT)]
+    existing = env.get("PYTHONPATH")
+    if existing:
+        extra_paths.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(extra_paths)
+    return env
+
+
+def run_abcrown(
+    config_path: Path,
+    abcrown_root: Path,
+    run_tool: bool,
+    python_bin: str,
+    timeout: int = 120,
+) -> Dict[str, Any]:
     config_path = config_path.resolve()
     abcrown_root = abcrown_root.resolve()
     entry = _find_abcrown_entry(abcrown_root)
 
-    entry_exists = entry is not None
     command = None
     if entry is not None:
-        command = f"python {entry} --config {config_path}"
+        command = f"{python_bin} {entry} --config {config_path}"
 
     payload = {
         "config": str(config_path),
         "abcrown_root": str(abcrown_root),
+        "python": python_bin,
         "command": command,
-        "abcrown_entry_found": entry_exists,
+        "abcrown_entry_found": entry is not None,
         "status": None,
         "returncode": None,
         "runtime_seconds": None,
@@ -72,7 +79,7 @@ def run_abcrown(config_path: Path, abcrown_root: Path, run_tool: bool, timeout: 
         "stderr_tail": "",
     }
 
-    if not entry_exists:
+    if entry is None:
         payload["status"] = "environment_not_ready"
         payload["stderr_tail"] = "abcrown.py not found. Clone and install alpha-beta-CROWN first."
         return payload
@@ -81,12 +88,13 @@ def run_abcrown(config_path: Path, abcrown_root: Path, run_tool: bool, timeout: 
         payload["status"] = "dry_run"
         return payload
 
-    cmd: List[str] = ["python", str(entry), "--config", str(config_path)]
+    cmd: List[str] = [python_bin, str(entry), "--config", str(config_path)]
     started = time.perf_counter()
     try:
         result = subprocess.run(
             cmd,
-            cwd=str(abcrown_root),
+            cwd=str(entry.parent),
+            env=_subprocess_env(),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -100,8 +108,8 @@ def run_abcrown(config_path: Path, abcrown_root: Path, run_tool: bool, timeout: 
                 "status": "timeout",
                 "returncode": None,
                 "runtime_seconds": round(elapsed, 4),
-                "stdout_tail": (exc.stdout or "")[:4000],
-                "stderr_tail": (exc.stderr or "")[:4000],
+                "stdout_tail": (exc.stdout or "")[-4000:],
+                "stderr_tail": (exc.stderr or "")[-4000:],
             }
         )
         return payload
@@ -109,13 +117,16 @@ def run_abcrown(config_path: Path, abcrown_root: Path, run_tool: bool, timeout: 
     elapsed = time.perf_counter() - started
     out = result.stdout or ""
     err = result.stderr or ""
+    status = _detect_status(out + "\n" + err)
+    if result.returncode != 0 and status not in {"timeout"}:
+        status = "failed"
     payload.update(
         {
             "returncode": int(result.returncode),
             "runtime_seconds": round(elapsed, 4),
             "stdout_tail": out[-8000:],
             "stderr_tail": err[-8000:],
-            "status": _detect_status((out + "\n" + err)),
+            "status": status,
         }
     )
     return payload
@@ -129,8 +140,9 @@ def summarize_config(config_path: Path) -> Dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, default=Path("configs/toy_linf_robustness.yaml"))
-    parser.add_argument("--abcrown-root", type=Path, default=Path("."))
-    parser.add_argument("--run", action="store_true", help="Run α,β-CROWN instead of dry run.")
+    parser.add_argument("--abcrown-root", type=Path, default=Path("external/alpha-beta-CROWN"))
+    parser.add_argument("--python", default="python", help="Python executable used to run abcrown.py.")
+    parser.add_argument("--run", action="store_true", help="Run alpha-beta-CROWN instead of dry run.")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--output", type=Path, default=DEFAULT_RESULTS)
     args = parser.parse_args()
@@ -143,6 +155,7 @@ def main() -> None:
         config_path=args.config,
         abcrown_root=args.abcrown_root,
         run_tool=args.run,
+        python_bin=args.python,
         timeout=args.timeout,
     )
     result["config_preview"] = {
@@ -159,7 +172,7 @@ def main() -> None:
     if args.run:
         print("Result saved to", args.output)
     else:
-        print("Dry run complete. Add --run to execute α,β-CROWN.")
+        print("Dry run complete. Add --run to execute alpha-beta-CROWN.")
 
 
 if __name__ == "__main__":

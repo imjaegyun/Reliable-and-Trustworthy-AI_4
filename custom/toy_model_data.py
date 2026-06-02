@@ -1,23 +1,20 @@
-"""Custom model + dataloader definitions for α,β-CROWN toy experiments.
-
-This file is intentionally lightweight and self-contained so it can be imported by
-`test.py` and α,β-CROWN custom loaders.
-"""
+"""Custom model and data functions for the assignment alpha-beta-CROWN run."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Tuple
 
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
 
 
-def build_toy_model(in_channel: int = 2, out_dim: int = 2):
-    """Return a small MLP used as external model in this assignment."""
-    return ToyBinaryMLP(in_dim=in_channel, hidden=16, out_dim=out_dim)
+ROOT = Path(__file__).resolve().parents[1]
+MODEL_PATH = ROOT / "models" / "toy_binary_mlp.pt"
+DATA_PATH = ROOT / "data" / "toy_dataset.csv"
+REFERENCE_PATH = ROOT / "data" / "toy_reference_point.json"
 
 
 class ToyBinaryMLP(nn.Module):
@@ -33,13 +30,42 @@ class ToyBinaryMLP(nn.Module):
         return self.net(x)
 
 
-def load_toy_box_data(dataset_csv: str | Path = "data/toy_dataset.csv", batch_size: int = 64):
-    """Load the generated toy dataset for local robustness verification examples.
+def build_toy_model(in_channel: int = 2, out_dim: int = 2):
+    """Return the small MLP and load the trained checkpoint when available."""
+    model = ToyBinaryMLP(in_dim=in_channel, hidden=16, out_dim=out_dim)
+    if MODEL_PATH.exists():
+        checkpoint = torch.load(MODEL_PATH, map_location="cpu")
+        state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+        model.load_state_dict(state_dict)
+    return model
 
-    Expected CSV format:
-      - columns: x0, x1, label
-      - values are normalized to [0, 1]
+
+def toy_box_data(spec):
+    """Return one toy verification instance for alpha-beta-CROWN.
+
+    alpha-beta-CROWN customized data loaders return:
+      X, labels, data_max, data_min, eps
     """
+    eps = spec.get("epsilon", 0.05)
+    if REFERENCE_PATH.exists():
+        payload = json.loads(REFERENCE_PATH.read_text(encoding="utf-8"))
+        point = payload["point"]
+        label = payload["label"]
+    else:
+        data = np.loadtxt(DATA_PATH, delimiter=",", skiprows=1)
+        point = data[0, :2].tolist()
+        label = int(data[0, 2])
+
+    x = torch.tensor([point], dtype=torch.float32)
+    labels = torch.tensor([label], dtype=torch.long)
+    data_max = torch.ones_like(x)
+    data_min = torch.zeros_like(x)
+    eps_tensor = torch.tensor(eps, dtype=torch.float32).reshape(1, -1)
+    return x, labels, data_max, data_min, eps_tensor
+
+
+def load_toy_box_data(dataset_csv: str | Path = DATA_PATH, batch_size: int = 64):
+    """Load the generated toy dataset for manual checks."""
     path = Path(dataset_csv)
     if not path.exists():
         raise FileNotFoundError(f"dataset not found: {path}")
@@ -47,13 +73,11 @@ def load_toy_box_data(dataset_csv: str | Path = "data/toy_dataset.csv", batch_si
     data = np.loadtxt(path, delimiter=",", skiprows=1)
     x = torch.as_tensor(data[:, :2], dtype=torch.float32)
     y = torch.as_tensor(data[:, 2], dtype=torch.long)
-
-    dataset = TensorDataset(x, y)
-    return DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    return DataLoader(TensorDataset(x, y), batch_size=batch_size, shuffle=False)
 
 
-def select_reference_point(dataset_csv: str | Path = "data/toy_dataset.csv", target_label: int = 0):
-    """Return one reference feature row for `target_label` with deterministic ordering."""
+def select_reference_point(dataset_csv: str | Path = DATA_PATH, target_label: int = 0):
+    """Return one deterministic reference feature row for a target label."""
     path = Path(dataset_csv)
     if not path.exists():
         raise FileNotFoundError(f"dataset not found: {path}")
@@ -64,6 +88,5 @@ def select_reference_point(dataset_csv: str | Path = "data/toy_dataset.csv", tar
     if len(candidates) == 0:
         raise ValueError(f"no row with label={target_label} in {path}")
 
-    # A deterministic representative point: 75% quantile position.
     idx = max(0, int(len(candidates) * 0.75) - 1)
     return candidates[idx]

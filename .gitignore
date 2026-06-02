@@ -5,3 +5,5 @@ __pycache__/
 *.pth.tar
 results/*.json
 results/*.log
+
+external/
