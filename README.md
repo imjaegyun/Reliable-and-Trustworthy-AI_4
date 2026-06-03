@@ -1,18 +1,8 @@
 # Assignment 4 - alpha-beta-CROWN experiment
 
-This is my Assignment 4 repository for the Reliable and Trustworthy AI course. I used a small external PyTorch model instead of one of the built-in alpha-beta-CROWN examples, then prepared the config and scripts needed to run a local robustness check.
+This repository is set up so that the assignment experiment can be run from a fresh checkout with one command. The script does not assume that alpha-beta-CROWN is already installed.
 
-## What is included
-
-- `docs/problem1_model_directory_review.md`: notes from checking the official alpha-beta-CROWN model/config examples
-- `scripts/build_toy_external_model.py`: generates the toy dataset and trains the PyTorch model
-- `custom/toy_model_data.py`: model and data loader definitions
-- `configs/toy_linf_robustness.yaml`: verifier configuration
-- `test.py`: runs `abcrown.py` through the selected alpha-beta-CROWN checkout and records the result
-- `run_all.sh`: one-command setup and execution script
-- `report.pdf`: final Korean report
-
-## One-command run
+## One-command execution
 
 Run:
 
@@ -21,17 +11,19 @@ chmod +x run_all.sh
 ./run_all.sh
 ```
 
-The script does the following steps:
+The script automatically performs the full workflow:
 
-1. creates or activates the assignment conda environment
-2. installs the Python dependencies in `requirements.txt`
-3. checks the Python files with `py_compile`
-4. creates the toy model and dataset if they are missing
+1. creates the assignment conda environment `assignment4-abcrown`
+2. installs the Python packages in `requirements.txt`
+3. compiles the assignment Python files as a quick syntax check
+4. creates the toy PyTorch model and dataset if they are missing
 5. clones alpha-beta-CROWN into `external/alpha-beta-CROWN` if it is missing
-6. creates the official `alpha-beta-crown` conda environment from `complete_verifier/environment.yaml`
-7. runs `test.py`, which calls `abcrown.py` and writes `results/verification_result.json`
+6. initializes alpha-beta-CROWN submodules
+7. creates the official alpha-beta-CROWN conda environment `alpha-beta-crown`
+8. runs `abcrown.py` on `configs/toy_linf_robustness.yaml`
+9. writes the result to `results/verification_result.json`
 
-The first run can take a long time because alpha-beta-CROWN and its conda environment are large.
+The first run is slow because it downloads alpha-beta-CROWN and creates two conda environments. Later runs reuse the existing checkout and environments.
 
 ## Useful options
 
@@ -41,22 +33,32 @@ Use a different alpha-beta-CROWN checkout:
 ABCROWN_ROOT=/path/to/alpha-beta-CROWN ./run_all.sh
 ```
 
-Only prepare the assignment side and record the command without running the verifier:
+Run setup and command generation without executing the verifier:
 
 ```bash
 ./run_all.sh --dry-run
 ```
 
-Use an existing alpha-beta-CROWN environment/check-out without reinstalling it:
+Reuse an existing alpha-beta-CROWN checkout and conda environment without reinstalling:
 
 ```bash
 ABCROWN_ROOT=/path/to/alpha-beta-CROWN ./run_all.sh --skip-abcrown-install
 ```
 
-## Result file
+Set a verifier timeout:
 
-The script writes the latest run result to:
-
-```text
-results/verification_result.json
+```bash
+./run_all.sh --timeout 60
 ```
+
+## Experiment files
+
+- `scripts/build_toy_external_model.py`: creates the synthetic dataset and trains the toy model
+- `custom/toy_model_data.py`: custom model/data functions used by alpha-beta-CROWN
+- `configs/toy_linf_robustness.yaml`: verification configuration
+- `test.py`: calls `abcrown.py` and records structured JSON output
+- `report.pdf`: final Korean report
+
+## Current expected result
+
+For the included toy model and reference point, the expected result is `verified`. The result JSON records the exact command, return code, runtime, stdout tail, stderr tail, and parsed status.

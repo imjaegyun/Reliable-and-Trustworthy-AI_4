@@ -43,6 +43,7 @@ def _detect_status(text: str) -> str:
 
 def _subprocess_env() -> Dict[str, str]:
     env = os.environ.copy()
+    env["ASSIGNMENT4_ROOT"] = str(ROOT)
     extra_paths = [str(ROOT / "custom"), str(ROOT)]
     existing = env.get("PYTHONPATH")
     if existing:
@@ -118,7 +119,7 @@ def run_abcrown(
     out = result.stdout or ""
     err = result.stderr or ""
     status = _detect_status(out + "\n" + err)
-    if result.returncode != 0 and status not in {"timeout"}:
+    if result.returncode != 0 and status != "timeout":
         status = "failed"
     payload.update(
         {
